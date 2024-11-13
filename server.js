@@ -21,14 +21,19 @@ const loadContext = () => {
 };
 
 // Função para gerar um prompt contextualizado com base no conteúdo do arquivo
+// Função para gerar um prompt contextualizado com base no conteúdo do arquivo
 const generatePrompt = (userMessage, context) => {
   return `
+    Você é um especialista em um sistema de gestão acadêmica. O sistema oferece as seguintes funcionalidades:
+
     ${context}
-    
-    Respondendo como especialista:
+
+    Quando um usuário faz uma pergunta, você deve responder com base nas informações fornecidas acima.
+
     Pergunta do usuário: "${userMessage}"
   `;
 };
+
 
 // Endpoint para enviar mensagens ao ChatGPT com contexto da Agro Circula
 app.post('/api/chat', async (req, res) => {
