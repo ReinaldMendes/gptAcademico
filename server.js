@@ -33,7 +33,7 @@ const Chat = mongoose.model('Chat', chatSchema);
 const upload = multer({ dest: 'uploads/' });
 
 // Porta da API
-const port = 3000;
+const port = 4000;
 
 // Função para carregar o contexto de um arquivo .txt
 const loadContext = () => {
