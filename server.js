@@ -55,7 +55,7 @@ const langMap = {
 // Função para detectar idioma
 const detectLanguage = (message) => {
   const langCode = franc(message);
-  return langMap[langCode] || 'English'; // Padrão para inglês
+  return langMap[langCode] || 'Portuguese'; // Padrão para inglês
 };
 
 // Função para gerar um prompt contextualizado com base no conteúdo do arquivo
