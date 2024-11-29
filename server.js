@@ -5,9 +5,14 @@ import mongoose from 'mongoose';
 import multer from 'multer';
 import { franc } from 'franc';
 import dotenv from 'dotenv';
+import https from 'https';
+import sslRootCas from 'ssl-root-cas/latest.js';
 
 // Configuração do dotenv
 dotenv.config();
+
+// Injeção de certificados raiz no Node.js
+sslRootCas.inject();
 
 const app = express();
 app.use(express.json());
@@ -15,7 +20,7 @@ app.use(express.json());
 // Configuração do MongoDB
 mongoose.connect(process.env.MONGODB, {
   useNewUrlParser: true,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
 })
   .then(() => console.log('Conectado ao MongoDB'))
   .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
@@ -24,13 +29,22 @@ mongoose.connect(process.env.MONGODB, {
 const chatSchema = new mongoose.Schema({
   userMessage: String,
   botResponse: String,
-  timestamp: { type: Date, default: Date.now }
+  timestamp: { type: Date, default: Date.now },
 });
 
 const Chat = mongoose.model('Chat', chatSchema);
 
-// Configuração do multer para upload de arquivos
-const upload = multer({ dest: 'uploads/' });
+// Configuração do multer para upload de arquivos com nome original
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    // Salva o arquivo com o nome original prefixado com o timestamp
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+const upload = multer({ storage });
 
 // Porta da API
 const port = 4000;
@@ -49,13 +63,13 @@ const loadContext = () => {
 const langMap = {
   eng: 'English',
   por: 'Portuguese',
-  spa: 'Spanish'
+  spa: 'Spanish',
 };
 
 // Função para detectar idioma
 const detectLanguage = (message) => {
   const langCode = franc(message);
-  return langMap[langCode] || 'Portuguese'; // Padrão para inglês
+  return langMap[langCode] || 'Portuguese'; // Padrão para português
 };
 
 // Função para gerar um prompt contextualizado com base no conteúdo do arquivo
@@ -70,6 +84,11 @@ const generatePrompt = (userMessage, context, language) => {
     Pergunta do usuário: "${userMessage}"
   `;
 };
+
+// Configuração do agente HTTPS para depuração (ignorar verificação de certificado)
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false, // **Use apenas em desenvolvimento!**
+});
 
 // Endpoint principal de chat com histórico e suporte multilíngue
 app.post('/api/chat', async (req, res) => {
@@ -89,14 +108,15 @@ app.post('/api/chat', async (req, res) => {
         model: 'gpt-3.5-turbo',
         messages: [
           { role: 'system', content: generatePrompt(message, context, language) },
-          { role: 'user', content: message }
-        ]
+          { role: 'user', content: message },
+        ],
       },
       {
         headers: {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
+        httpsAgent, // Usando o agente HTTPS para ignorar verificação
       }
     );
 
@@ -107,49 +127,73 @@ app.post('/api/chat', async (req, res) => {
 
     res.json({ response: chatResponse });
   } catch (error) {
-    console.error('Erro ao acessar a API do ChatGPT:', error.message);
+    console.error('Erro ao acessar a API do ChatGPT:', error.response?.data || error.message);
     res.status(500).json({ error: 'Erro ao acessar a API do ChatGPT.' });
   }
 });
 
 // Endpoint para upload de arquivos e interação com o contexto do arquivo
 app.post('/api/chat-with-file', upload.single('file'), async (req, res) => {
-  const { message } = req.body;
+  // Log de depuração para o corpo da requisição
+  console.log('Requisição recebida:');
+  console.log('Body:', req.body);
 
-  if (!message || !req.file) {
-    return res.status(400).json({ error: 'Envie uma mensagem e um arquivo.' });
+  // Log de depuração para o arquivo enviado
+  console.log('Arquivo recebido:', req.file);
+
+  // Validação de entrada
+  if (!req.file) {
+    console.error('Erro: Nenhum arquivo enviado.');
+    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   }
 
-  const fileContent = fs.readFileSync(req.file.path, 'utf8');
-  const context = loadContext() + '\n' + fileContent;
-  const language = detectLanguage(message);
+  if (!req.body.message) {
+    console.error('Erro: Nenhuma mensagem enviada.');
+    return res.status(400).json({ error: 'Nenhuma mensagem enviada.' });
+  }
 
   try {
+    // Lê o conteúdo do arquivo enviado
+    const fileContent = fs.readFileSync(req.file.path, 'utf8');
+
+    // Combina o contexto do sistema com o conteúdo do arquivo
+    const context = loadContext() + '\n' + fileContent;
+    const language = detectLanguage(req.body.message);
+
+    // Log do contexto gerado
+    console.log('Contexto gerado:', context);
+
+    // Chamada à API do ChatGPT
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
         model: 'gpt-3.5-turbo',
         messages: [
-          { role: 'system', content: generatePrompt(message, context, language) },
-          { role: 'user', content: message }
-        ]
+          { role: 'system', content: generatePrompt(req.body.message, context, language) },
+          { role: 'user', content: req.body.message },
+        ],
       },
       {
         headers: {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
+        httpsAgent, // Usando o agente HTTPS para ignorar verificação
       }
     );
 
     const chatResponse = response.data.choices[0].message.content;
 
-    // Salvar a conversa no banco de dados
-    await Chat.create({ userMessage: message, botResponse: chatResponse });
+    // Salva a conversa no banco de dados
+    await Chat.create({ userMessage: req.body.message, botResponse: chatResponse });
 
+    // Log do sucesso na resposta
+    console.log('Resposta gerada pelo ChatGPT:', chatResponse);
+
+    // Responde ao cliente com o conteúdo gerado
     res.json({ response: chatResponse });
   } catch (error) {
-    console.error('Erro ao acessar a API do ChatGPT:', error.message);
+    console.error('Erro ao acessar a API do ChatGPT:', error.response?.data || error.message);
     res.status(500).json({ error: 'Erro ao acessar a API do ChatGPT.' });
   }
 });
