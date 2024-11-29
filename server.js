@@ -7,6 +7,9 @@ import { franc } from 'franc';
 import dotenv from 'dotenv';
 import https from 'https';
 import sslRootCas from 'ssl-root-cas/latest.js';
+import cors from 'cors';
+
+
 
 // Configuração do dotenv
 dotenv.config();
@@ -16,7 +19,7 @@ sslRootCas.inject();
 
 const app = express();
 app.use(express.json());
-
+app.use(cors());
 // Configuração do MongoDB
 mongoose.connect(process.env.MONGODB, {
   useNewUrlParser: true,

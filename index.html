@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste API Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      padding: 0;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    textarea, input[type="text"], input[type="file"], button {
+      width: 100%;
+      margin: 10px 0;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .response {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Teste da API de Chat</h1>
+
+    <h3>Envie uma Mensagem:</h3>
+    <textarea id="messageInput" rows="4" placeholder="Digite sua mensagem aqui..."></textarea>
+    <button id="sendMessageButton">Enviar Mensagem</button>
+    <div id="messageResponse" class="response"></div>
+
+    <h3>Envie um Arquivo e Mensagem:</h3>
+    <input type="file" id="fileInput">
+    <input type="text" id="fileMessageInput" placeholder="Digite sua mensagem aqui...">
+    <button id="sendFileButton">Enviar Arquivo</button>
+    <div id="fileResponse" class="response"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
