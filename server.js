@@ -9,8 +9,6 @@ import https from 'https';
 import sslRootCas from 'ssl-root-cas/latest.js';
 import cors from 'cors';
 
-
-
 // Configuração do dotenv
 dotenv.config();
 
@@ -20,6 +18,7 @@ sslRootCas.inject();
 const app = express();
 app.use(express.json());
 app.use(cors());
+
 // Configuração do MongoDB
 mongoose.connect(process.env.MONGODB, {
   useNewUrlParser: true,
@@ -43,7 +42,6 @@ const storage = multer.diskStorage({
     cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    // Salva o arquivo com o nome original prefixado com o timestamp
     cb(null, `${Date.now()}-${file.originalname}`);
   },
 });
@@ -93,24 +91,39 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: false, // **Use apenas em desenvolvimento!**
 });
 
-// Endpoint principal de chat com histórico e suporte multilíngue
+// Endpoint principal de chat com histórico e suporte a opções
 app.post('/api/chat', async (req, res) => {
-  const { message } = req.body;
+  const { message, option } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: 'Por favor, envie uma mensagem.' });
   }
 
-  const context = loadContext();
+  let context = '';
   const language = detectLanguage(message);
 
   try {
+    // Seleciona o contexto com base na opção
+    if (option === 'Manual Senac') {
+      context = loadContext(); // Carrega do arquivo
+    } else if (option === 'Histórico') {
+      const chatHistory = await Chat.find().sort({ timestamp: -1 }).limit(10); // Últimos 10 registros
+      context = chatHistory
+        .map(entry => `Usuário: ${entry.userMessage}\nBot: ${entry.botResponse}`)
+        .join('\n');
+    } else {
+      return res.status(400).json({ error: 'Opção inválida. Escolha Manual Senac ou Histórico.' });
+    }
+
+    const prompt = generatePrompt(message, context, language);
+
+    // Chamada à API do ChatGPT
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
         model: 'gpt-3.5-turbo',
         messages: [
-          { role: 'system', content: generatePrompt(message, context, language) },
+          { role: 'system', content: prompt },
           { role: 'user', content: message },
         ],
       },
@@ -119,7 +132,7 @@ app.post('/api/chat', async (req, res) => {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        httpsAgent, // Usando o agente HTTPS para ignorar verificação
+        httpsAgent,
       }
     );
 
@@ -137,36 +150,15 @@ app.post('/api/chat', async (req, res) => {
 
 // Endpoint para upload de arquivos e interação com o contexto do arquivo
 app.post('/api/chat-with-file', upload.single('file'), async (req, res) => {
-  // Log de depuração para o corpo da requisição
-  console.log('Requisição recebida:');
-  console.log('Body:', req.body);
-
-  // Log de depuração para o arquivo enviado
-  console.log('Arquivo recebido:', req.file);
-
-  // Validação de entrada
-  if (!req.file) {
-    console.error('Erro: Nenhum arquivo enviado.');
-    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
-  }
-
-  if (!req.body.message) {
-    console.error('Erro: Nenhuma mensagem enviada.');
-    return res.status(400).json({ error: 'Nenhuma mensagem enviada.' });
+  if (!req.file || !req.body.message) {
+    return res.status(400).json({ error: 'Arquivo e mensagem são necessários.' });
   }
 
   try {
-    // Lê o conteúdo do arquivo enviado
     const fileContent = fs.readFileSync(req.file.path, 'utf8');
-
-    // Combina o contexto do sistema com o conteúdo do arquivo
     const context = loadContext() + '\n' + fileContent;
     const language = detectLanguage(req.body.message);
 
-    // Log do contexto gerado
-    console.log('Contexto gerado:', context);
-
-    // Chamada à API do ChatGPT
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -181,19 +173,14 @@ app.post('/api/chat-with-file', upload.single('file'), async (req, res) => {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        httpsAgent, // Usando o agente HTTPS para ignorar verificação
+        httpsAgent,
       }
     );
 
     const chatResponse = response.data.choices[0].message.content;
 
-    // Salva a conversa no banco de dados
     await Chat.create({ userMessage: req.body.message, botResponse: chatResponse });
 
-    // Log do sucesso na resposta
-    console.log('Resposta gerada pelo ChatGPT:', chatResponse);
-
-    // Responde ao cliente com o conteúdo gerado
     res.json({ response: chatResponse });
   } catch (error) {
     console.error('Erro ao acessar a API do ChatGPT:', error.response?.data || error.message);
